@@ -8,7 +8,7 @@ This implementation was inspired by and adapted from the work originally done in
 
 ## Purpose
 
-- expose curated dashboards and analytics for PU data;
+- expose curated dashboards and analytics for pagoPA data;
 - provide a Superset-based UI for business users and operators;
 - integrate with platform authentication and domain services;
 - run in a reproducible containerized environment.
@@ -28,7 +28,7 @@ The stack is composed of:
 
 - Redis
 - PostgreSQL
-- 
+
 ## Configuration
 
 For the full list of Superset options, refer to the official [Apache Superset installation and configuration documentation](https://github.com/apache/superset?tab=readme-ov-file#installation-and-configuration).
