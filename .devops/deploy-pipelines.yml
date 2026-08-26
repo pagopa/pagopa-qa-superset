@@ -1,0 +1,200 @@
+parameters:
+  - name: DEPLOY_MODE
+    displayName: Deploy mode
+    type: string
+    default: dev
+    values:
+      - dev
+#      - uat
+#      - prod
+
+variables:
+  DEV_POOL_NAME: 'pagopa-dev-linux'
+
+  IMAGE_NAME: 'pagopa-qa-superset'
+  IMAGE_TAG: '$(Build.BuildId)'
+
+  DEV_CONTAINER_REGISTRY_SERVICE_CONN: 'pagopa-qa-acr-connection'
+
+  DEV_ACR_NAME: 'pagopadcommonacr'
+
+  TRIVY_VERSION: '0.57.1'
+
+  SOURCE_BRANCH: '${{ variables[''Build.SourceBranchName''] }}'
+
+trigger: none
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-22.04'
+
+stages:
+  - stage: build_and_push_dev
+    displayName: Build and Push [DEV]
+    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    jobs:
+      - job: buildPushDev
+        displayName: Build and push DEV image
+        pool:
+          name: '$(DEV_POOL_NAME)'
+        steps:
+          - checkout: self
+            clean: true
+
+          - script: git checkout $(SOURCE_BRANCH)
+            displayName: Checkout source branch
+
+          - task: AzureCLI@2
+            displayName: Azure login to DEV ACR
+            inputs:
+              azureSubscription: '$(DEV_CONTAINER_REGISTRY_SERVICE_CONN)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(DEV_ACR_NAME)
+
+          - script: |
+              set -euxo pipefail
+              docker build \
+                -t $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) \
+                -t $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):latest \
+                .
+              docker push $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+              docker push $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):latest
+            displayName: Build and push DEV image
+
+  - stage: trivy_scan_dev
+    displayName: Trivy scan [DEV]
+    dependsOn: build_and_push_dev
+    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    jobs:
+      - job: scanDevImage
+        displayName: Scan the DEV image for vulnerabilities
+        pool:
+          name: '$(DEV_POOL_NAME)'
+        steps:
+          - checkout: self
+            clean: true
+
+          - script: |
+              set -euxo pipefail
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v$(TRIVY_VERSION)
+            displayName: Install Trivy
+
+          - script: |
+              set +e
+              trivy image \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                --no-progress \
+                $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+              EXIT_CODE=$?
+              echo "Trivy exit code: $EXIT_CODE"
+              if [ "$EXIT_CODE" -ne 0 ]; then
+                echo "##vso[task.logissue type=warning]Critical vulnerabilities found in DEV image. Review required before promotion."
+              fi
+              exit 0
+            displayName: Run Trivy scan
+            continueOnError: true
+
+#  - stage: promote_to_uat
+#    displayName: Promote image [UAT]
+#    dependsOn: trivy_scan_dev
+#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'uat')
+#    jobs:
+#      - job: promoteUat
+#        displayName: Promote DEV -> UAT
+#        pool:
+#          name: '$(UAT_POOL_NAME)'
+#        steps:
+#          - checkout: self
+#            clean: true
+#
+#          - task: AzureCLI@2
+#            displayName: Azure login to DEV ACR
+#            inputs:
+#              azureSubscription: '$(DEV_CONTAINER_REGISTRY_SERVICE_CONN)'
+#              scriptType: bash
+#              scriptLocation: inlineScript
+#              inlineScript: |
+#                az acr login --name $(DEV_ACR_NAME)
+#
+#          - task: AzureCLI@2
+#            displayName: Azure login to UAT ACR
+#            inputs:
+#              azureSubscription: '$(UAT_CONTAINER_REGISTRY_SERVICE_CONN)'
+#              scriptType: bash
+#              scriptLocation: inlineScript
+#              inlineScript: |
+#                az acr login --name $(UAT_ACR_NAME)
+#
+#          - script: |
+#              set -euxo pipefail
+#              docker pull $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+#              docker tag $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+#              docker push $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+#              docker tag $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):uat-$(IMAGE_TAG)
+#              docker push $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):uat-$(IMAGE_TAG)
+#            displayName: Promote image from DEV to UAT
+#
+#  - stage: prod_approval
+#    displayName: Approval [PROD]
+#    dependsOn: promote_to_uat
+#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'prod')
+#    jobs:
+#      - job: prodApproval
+#        displayName: Wait for PROD approval
+#        pool:
+#          vmImage: 'ubuntu-22.04'
+#        steps:
+#          - task: ManualValidation@0
+#            displayName: Manual approval for production deployment
+#            timeoutInMinutes: 1440
+#            instructions: |
+#              Review the UAT promotion result and approve the production deployment.
+#              If the image is not ready, reject the deployment.
+#            onTimeout: 'reject'
+#
+#  - stage: promote_to_prod
+#    displayName: Promote image [PROD]
+#    dependsOn: prod_approval
+#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'prod')
+#    jobs:
+#      - job: promoteProd
+#        displayName: Promote UAT -> PROD
+#        pool:
+#          name: '$(PROD_POOL_NAME)'
+#        steps:
+#          - checkout: self
+#            clean: true
+#
+#          - task: AzureCLI@2
+#            displayName: Azure login to UAT ACR
+#            inputs:
+#              azureSubscription: '$(UAT_CONTAINER_REGISTRY_SERVICE_CONN)'
+#              scriptType: bash
+#              scriptLocation: inlineScript
+#              inlineScript: |
+#                az acr login --name $(UAT_ACR_NAME)
+#
+#          - task: AzureCLI@2
+#            displayName: Azure login to PROD ACR
+#            inputs:
+#              azureSubscription: '$(PROD_CONTAINER_REGISTRY_SERVICE_CONN)'
+#              scriptType: bash
+#              scriptLocation: inlineScript
+#              inlineScript: |
+#                az acr login --name $(PROD_ACR_NAME)
+#
+#          - script: |
+#              set -euxo pipefail
+#              docker pull $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+#              docker tag $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+#              docker push $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
+#              docker tag $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):prod-$(IMAGE_TAG)
+#              docker push $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):prod-$(IMAGE_TAG)
+#            displayName: Promote image from UAT to PROD
