@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-superset}
+      POSTGRES_USER: ${DB_USER:-superset}
+      POSTGRES_PASSWORD: ${DB_PASS:-superset}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-superset} -d ${DB_NAME:-superset}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  superset:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PATH: /app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-superset}
+      DB_USER: ${DB_USER:-superset}
+      DB_PASS: ${DB_PASS:-superset}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PROTO: ${REDIS_PROTO:-redis}
+      REDIS_SSL_CERT_REQS: ${REDIS_SSL_CERT_REQS:-none}
+      REDIS_USER: ${REDIS_USER:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://host.docker.internal:8081}
+      DEBT_POSITIONS_BASE_URL: ${DEBT_POSITIONS_BASE_URL:-http://host.docker.internal:8082}
+      ANALYTICS_DB_NAME: ${ANALYTICS_DB_NAME:-analytics}
+      ANALYTICS_DB_SCHEMA_NAME: ${ANALYTICS_DB_SCHEMA_NAME:-public}
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-change-me}
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME:-admin}
+      SUPERSET_ADMIN_FIRSTNAME: ${SUPERSET_ADMIN_FIRSTNAME:-Admin}
+      SUPERSET_ADMIN_LASTNAME: ${SUPERSET_ADMIN_LASTNAME:-User}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8088:8088"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        /app/.venv/bin/superset db upgrade
+        /app/.venv/bin/superset fab create-admin \
+          --username "$${SUPERSET_ADMIN_USERNAME}" \
+          --firstname "$${SUPERSET_ADMIN_FIRSTNAME}" \
+          --lastname "$${SUPERSET_ADMIN_LASTNAME}" \
+          --email "$${SUPERSET_ADMIN_EMAIL}" \
+          --password "$${SUPERSET_ADMIN_PASSWORD}" || true
+        /app/.venv/bin/superset init
+        /app/.venv/bin/superset run -p 8088 --host 0.0.0.0 --with-threads
+    volumes:
+      - superset_home:/app
+
+volumes:
+  postgres_data:
+  redis_data:
+  superset_home:

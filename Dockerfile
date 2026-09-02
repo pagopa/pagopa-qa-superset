@@ -1,0 +1,90 @@
+# syntax=docker/dockerfile:1.4@sha256:9ba7531bd80fb0a858632727cf7a112fbfd19b17e94c4e84ced81e24ef1a0dbc
+
+#
+# 🎯 Version Management
+#
+ARG IMAGE="apachesuperset.docker.scarf.sh/apache/superset"
+# using RC version in order to be able to use a context path different from / (SUPERSET_APP_ROOT env var)
+ARG IMAGE_VERSION="6.1.0-py312"
+ARG IMAGE_SHA="113dccecd42265dcd7493a49eeef1c85aadd467934fa90e6f584ee70b73e9f99"
+
+# 🌍 Timezone Configuration
+ARG TZ="Europe/Rome"
+
+#
+# 📥 Base Setup Stage
+#
+FROM ${IMAGE}:${IMAGE_VERSION}@sha256:${IMAGE_SHA} AS base
+ARG TZ
+
+USER root
+
+# Set timezone environment variable
+ENV TZ=${TZ}
+
+# Install base packages
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        gcc \
+        git \
+        libpq-dev \
+        pkg-config \
+        python3-dev \
+        tini \
+        tzdata && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy build configuration
+COPY .git .git
+
+# Storing source git branch details
+RUN git show --summary > build.info && \
+    chown -R superset:superset /build && \
+    chmod -R 775 /build && \
+    apt-get remove -y git && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+USER superset
+
+#
+# 📦 Dependency Setup Stage
+#
+FROM base AS dependencies
+
+# Install dependencies
+USER root
+RUN uv pip install \
+    authlib \
+    psycopg2-binary \
+    requests \
+    pyjwt
+
+USER superset
+
+#
+# 🏗️ Build Stage
+#
+FROM dependencies AS build
+
+# Copy configs
+#COPY --chown=superset:superset src/configs /app/configs
+#
+## Copy static assets
+#COPY --chown=superset:superset src/static /app/superset/static
+
+#
+# 🚀 Runtime Stage
+#
+FROM build AS runtime
+
+WORKDIR /app
+ENV PATH=/app/.venv/bin:$PATH
+
+# 🔌 Container Configuration
+USER superset
