@@ -10,19 +10,16 @@ parameters:
 
 variables:
   DEV_POOL_NAME: 'pagopa-dev-linux'
+  UAT_POOL_NAME: 'pagopa-uat-linux'
+  PROD_POOL_NAME: 'pagopa-prod-linux'
 
   IMAGE_NAME: 'pagopa-qa-superset'
   IMAGE_TAG: '$(Build.BuildId)'
 
-  DEV_CONTAINER_REGISTRY_SERVICE_CONN: 'pagopa-qa-acr-connection'
-
-  DEV_ACR_NAME: 'pagopadcommonacr'
-
   TRIVY_VERSION: '0.57.1'
 
-  SOURCE_BRANCH: '${{ variables[''Build.SourceBranchName''] }}'
-
 trigger: none
+
 pr:
   branches:
     include:

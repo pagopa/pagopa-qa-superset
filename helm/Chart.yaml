@@ -4,8 +4,6 @@ type: application
 
 # Bump a ogni modifica dei values/template.
 version: 0.1.0
-
-# Versione applicativa: deve restare allineata al tag immagine del Dockerfile
 appVersion: "6.1.0"
 
 home: https://superset.apache.org/
