@@ -1,0 +1,18 @@
+apiVersion: v2
+name: pagopa-qa-superset
+type: application
+
+# Bump a ogni modifica dei values/template.
+version: 0.1.0
+
+# Versione applicativa: deve restare allineata al tag immagine del Dockerfile
+appVersion: "6.1.0"
+
+home: https://superset.apache.org/
+sources:
+  - https://github.com/apache/superset/tree/master/helm/superset
+
+dependencies:
+  - name: superset
+    version: 0.22.4
+    repository: https://apache.github.io/superset

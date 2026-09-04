@@ -1,0 +1,65 @@
+superset:
+  image:
+    repository: pagopadcommonacr.azurecr.io/pagopa-qa-superset
+    tag: latest
+    pullPolicy: Always
+
+  database:
+    host: pagopa-d-superset-pgflex.postgres.database.azure.com
+    name: superset
+
+  cache:
+    host: pagopa-d-superset-redis.redis.cache.windows.net
+
+  extraEnv:
+    ENVIRONMENT: dev
+    ANALYTICS_DB_NAME: analytics
+    ANALYTICS_DB_SCHEMA_NAME: public
+    # TODO allineare ai servizi di piattaforma DEV (cfr. docker-compose.yml)
+    AUTH_BASE_URL: https://api.dev.platform.pagopa.it/auth
+    DEBT_POSITIONS_BASE_URL: https://api.dev.platform.pagopa.it/debt-positions
+
+  config:
+    ROW_LIMIT: 50000
+    SUPERSET_WEBSERVER_TIMEOUT: 300
+    # In dev conviene vedere gli errori applicativi.
+    WTF_CSRF_ENABLED: true
+
+  init:
+    createAdmin: true
+    loadExamples: true
+    adminUser:
+      username: admin
+      firstname: PagoPA
+      lastname: Admin
+      email: admin@pagopa.it
+      password: ""
+
+  supersetNode:
+    replicas:
+      replicaCount: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+  supersetWorker:
+    replicas:
+      replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+  ingress:
+    hosts:
+      - superset.itn.internal.dev.platform.pagopa.it
+    tls:
+      - secretName: superset-itn-internal-dev-platform-pagopa-it
+        hosts:
+          - superset.itn.internal.dev.platform.pagopa.it
+

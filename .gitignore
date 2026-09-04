@@ -31,4 +31,8 @@ build/
 *.tfstate
 *.tfstate.*
 
+### Helm ###
+helm/charts/
+helm/Chart.lock
+
 .env

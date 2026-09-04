@@ -1,0 +1,144 @@
+# ------------------------------------------------------------------------------
+# Values comuni a tutti gli ambienti.
+#
+# Gli override per ambiente stanno in values-<env>.yaml.
+# ------------------------------------------------------------------------------
+
+superset:
+  image:
+    # Immagine custom buildata da questo repo
+    # Il registry viene sovrascritto per ambiente.
+    repository: pagopadcommonacr.azurecr.io/pagopa-qa-superset
+    # Il tag viene passato dalla pipeline: --set superset.image.tag=$(Build.BuildId)
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # L'immagine ufficiale Superset gira come utente `superset` (uid 1000).
+  runAsUser: 1000
+
+  postgresql:
+    enabled: false
+
+  database:
+    # host / name sono definiti per ambiente in values-<env>.yaml
+    enabled: false
+    port: 5432
+    user: superset
+    password: ~
+    ssl:
+      enabled: true
+      mode: require
+
+  configMountPath: "/app/pythonpath"
+
+  redis:
+    enabled: false
+
+  cache:
+    enabled: false
+
+  secretEnv:
+    create: false
+
+  extraEnv:
+    TZ: Europe/Rome
+
+  # ---------------------------------------------------------------------------
+  # Componenti
+  # ---------------------------------------------------------------------------
+  supersetNode:
+    replicas:
+      enabled: true
+      replicaCount: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    terminationGracePeriodSeconds: 330
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "sleep 15"]
+
+  supersetWorker:
+    replicas:
+      enabled: true
+    # -- Worker startup command
+    # @default -- a `celery worker` command
+    command:
+      - "/bin/sh"
+      - "-c"
+      - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"
+    # -- If true, forces deployment to reload on each upgrade
+    forceReload: false
+    # -- Init container
+    # @default -- a container waiting for postgres
+    initContainers:
+      - name: wait-for-postgres
+        image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+        imagePullPolicy: "{{ .Values.initImage.pullPolicy }}"
+        envFrom:
+          - secretRef:
+              name: "{{ tpl .Values.envFromSecret . }}"
+        command:
+          - /bin/sh
+          - -c
+          - dockerize -wait "tcp://$DB_HOST:$DB_PORT" -timeout 120s
+
+
+  # Serve solo per alert & report schedulati.
+  supersetCeleryBeat:
+    enabled: false
+
+  # UI di monitoraggio Celery: non esposta.
+  supersetCeleryFlower:
+    enabled: false
+
+  supersetWebsockets:
+    enabled: false
+
+  supersetMcp:
+    enabled: false
+
+  # ---------------------------------------------------------------------------
+  # Job di init (db upgrade + superset init [+ create-admin])
+  # ---------------------------------------------------------------------------
+  init:
+    enabled: true
+    loadExamples: false
+    # Disabilitato di default: l'utenza amministrativa viene gestita
+    # dall'integrazione di autenticazione della piattaforma.
+    # In dev viene riabilitato (vedi values-dev.yaml).
+    createAdmin: false
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+  # ---------------------------------------------------------------------------
+  # Esposizione
+  # ---------------------------------------------------------------------------
+  service:
+    type: ClusterIP
+    port: 8088
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/force-ssl-redirect : "true"
+      ## Extend timeout to allow long running queries.
+      nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    path: /
+    pathType: ImplementationSpecific
+    extraHostsRaw: []
+
+  serviceAccount:
+    create: false
+  serviceAccountName: "qa-workload-identity"
