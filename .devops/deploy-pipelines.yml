@@ -74,26 +74,16 @@ stages:
           - checkout: self
             clean: true
 
-          - script: |
-              set -euxo pipefail
-              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v$(TRIVY_VERSION)
-            displayName: Install Trivy
-
-          - script: |
-              set +e
-              trivy image \
-                --severity HIGH,CRITICAL \
-                --ignore-unfixed \
-                --no-progress \
-                $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-              EXIT_CODE=$?
-              echo "Trivy exit code: $EXIT_CODE"
-              if [ "$EXIT_CODE" -ne 0 ]; then
-                echo "##vso[task.logissue type=warning]Critical vulnerabilities found in DEV image. Review required before promotion."
-              fi
-              exit 0
+          - task: Trivy@2
             displayName: Run Trivy scan
             continueOnError: true
+            inputs:
+              version: '$(TRIVY_VERSION)'
+              image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
+              severities: 'HIGH,CRITICAL'
+              ignoreUnfixed: true
+              options: '--no-progress'
+              exitCode: '0'
 
 #  - stage: promote_to_uat
 #    displayName: Promote image [UAT]
