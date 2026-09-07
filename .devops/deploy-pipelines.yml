@@ -74,6 +74,15 @@ stages:
           - checkout: self
             clean: true
 
+          - task: AzureCLI@2
+            displayName: Azure login to DEV ACR
+            inputs:
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(DEV_CONTAINER_NAMESPACE)
+
           - task: Trivy@2
             displayName: Run Trivy scan
             continueOnError: true
@@ -84,7 +93,7 @@ stages:
               severities: 'HIGH,CRITICAL'
               ignoreUnfixed: true
               ignoreScanErrors: true
-              options: '--no-progress'
+              options: '--no-progress --image-src remote'
 
 #  - stage: promote_to_uat
 #    displayName: Promote image [UAT]
