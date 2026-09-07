@@ -79,6 +79,7 @@ stages:
             continueOnError: true
             inputs:
               version: '$(TRIVY_VERSION)'
+              type: 'image'
               image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
               severities: 'HIGH,CRITICAL'
               ignoreUnfixed: true
