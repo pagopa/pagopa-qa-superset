@@ -2,7 +2,7 @@ superset:
   image:
     # Immagine custom buildata da questo repo
     # Il registry viene sovrascritto per ambiente.
-    repository: pagopadcommonacr.azurecr.io/pagopa-qa-superset
+    repository: pagopaditncoreacr.azurecr.io/pagopa-qa-superset
     # Il tag viene passato dalla pipeline: --set superset.image.tag=$(Build.BuildId)
     tag: latest
     pullPolicy: IfNotPresent
@@ -14,28 +14,66 @@ superset:
     enabled: false
 
   database:
-    # host / name sono definiti per ambiente in values-<env>.yaml
-    enabled: false
-    port: 5432
-    user: superset
-    password: ~
     ssl:
       enabled: true
       mode: require
 
   configMountPath: "/app/pythonpath"
 
+  # Si usa Azure Managed Redis.
   redis:
     enabled: false
 
+  envFromSecret: pagopa-superset-secret
+
   cache:
-    enabled: false
+    enabled: true
+    cacheDb: 0
+    celeryDb: 0
+    ssl:
+      # -> URL Redis in formato rediss:// + ?ssl_cert_reqs=<valore>
+      enabled: true
+      ssl_cert_reqs: none
 
   secretEnv:
     create: false
 
   extraEnv:
     TZ: Europe/Rome
+
+  configOverrides:
+    pagopa-managed-services: |
+      import ssl as _ssl
+
+      SECRET_KEY = env("SUPERSET_SECRET_KEY")
+
+      # Gli esempi (load_examples) di default finirebbero in uno SQLite locale
+      # effimero e per-pod: le tabelle non sarebbero visibili a web/worker.
+      # Li puntiamo sullo stesso Postgres Azure gia' usato per i metadati.
+      SQLALCHEMY_EXAMPLES_URI = SQLALCHEMY_DATABASE_URI
+
+      _redis_tls = env("REDIS_PROTO", "redis") == "rediss"
+      _cert_reqs = {
+          "none": _ssl.CERT_NONE,
+          "optional": _ssl.CERT_OPTIONAL,
+          "required": _ssl.CERT_REQUIRED,
+      }.get(env("REDIS_SSL_CERT_REQS", "none").lower(), _ssl.CERT_NONE)
+
+      RESULTS_BACKEND = RedisCache(
+          host=env("REDIS_HOST"),
+          port=int(env("REDIS_PORT", "10000")),
+          password=env("REDIS_PASSWORD") or None,
+          db=int(env("REDIS_CELERY_DB", "0")),
+          key_prefix="superset_results",
+          ssl=_redis_tls,
+          ssl_cert_reqs=_cert_reqs,
+      )
+
+      if _redis_tls:
+          # kombu non deduce sempre il TLS dall'URL rediss:// per broker e result
+          # backend Celery: lo forziamo esplicitamente.
+          CELERY_CONFIG.broker_use_ssl = {"ssl_cert_reqs": _cert_reqs}
+          CELERY_CONFIG.redis_backend_use_ssl = {"ssl_cert_reqs": _cert_reqs}
 
   # ---------------------------------------------------------------------------
   # Componenti
@@ -67,20 +105,6 @@ superset:
       - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"
     # -- If true, forces deployment to reload on each upgrade
     forceReload: false
-    # -- Init container
-    # @default -- a container waiting for postgres
-    initContainers:
-      - name: wait-for-postgres
-        image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
-        imagePullPolicy: "{{ .Values.initImage.pullPolicy }}"
-        envFrom:
-          - secretRef:
-              name: "{{ tpl .Values.envFromSecret . }}"
-        command:
-          - /bin/sh
-          - -c
-          - dockerize -wait "tcp://$DB_HOST:$DB_PORT" -timeout 120s
-
 
   # Serve solo per alert & report schedulati.
   supersetCeleryBeat:
@@ -102,9 +126,6 @@ superset:
   init:
     enabled: true
     loadExamples: false
-    # Disabilitato di default: l'utenza amministrativa viene gestita
-    # dall'integrazione di autenticazione della piattaforma.
-    # In dev viene riabilitato (vedi values-dev.yaml).
     createAdmin: false
     resources:
       requests:
@@ -125,7 +146,6 @@ superset:
     ingressClassName: nginx
     annotations:
       nginx.ingress.kubernetes.io/force-ssl-redirect : "true"
-      ## Extend timeout to allow long running queries.
       nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
       nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
       nginx.ingress.kubernetes.io/proxy-send-timeout: "300"

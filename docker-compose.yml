@@ -50,8 +50,6 @@ services:
       REDIS_SSL_CERT_REQS: ${REDIS_SSL_CERT_REQS:-none}
       REDIS_USER: ${REDIS_USER:-}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://host.docker.internal:8081}
-      DEBT_POSITIONS_BASE_URL: ${DEBT_POSITIONS_BASE_URL:-http://host.docker.internal:8082}
       ANALYTICS_DB_NAME: ${ANALYTICS_DB_NAME:-analytics}
       ANALYTICS_DB_SCHEMA_NAME: ${ANALYTICS_DB_SCHEMA_NAME:-public}
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-change-me}

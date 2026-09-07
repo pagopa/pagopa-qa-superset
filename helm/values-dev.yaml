@@ -1,23 +1,13 @@
 superset:
   image:
-    repository: pagopadcommonacr.azurecr.io/pagopa-qa-superset
+    repository: pagopaditncoreacr.azurecr.io/pagopa-qa-superset
     tag: latest
     pullPolicy: Always
-
-  database:
-    host: pagopa-d-superset-pgflex.postgres.database.azure.com
-    name: superset
-
-  cache:
-    host: pagopa-d-superset-redis.redis.cache.windows.net
 
   extraEnv:
     ENVIRONMENT: dev
     ANALYTICS_DB_NAME: analytics
     ANALYTICS_DB_SCHEMA_NAME: public
-    # TODO allineare ai servizi di piattaforma DEV (cfr. docker-compose.yml)
-    AUTH_BASE_URL: https://api.dev.platform.pagopa.it/auth
-    DEBT_POSITIONS_BASE_URL: https://api.dev.platform.pagopa.it/debt-positions
 
   config:
     ROW_LIMIT: 50000
@@ -26,14 +16,20 @@ superset:
     WTF_CSRF_ENABLED: true
 
   init:
-    createAdmin: true
+    createAdmin: false
     loadExamples: true
-    adminUser:
-      username: admin
-      firstname: PagoPA
-      lastname: Admin
-      email: admin@pagopa.it
-      password: ""
+    command:
+      - "/bin/sh"
+      - "-c"
+      - >
+        . {{ .Values.configMountPath }}/superset_bootstrap.sh;
+        . {{ .Values.configMountPath }}/superset_init.sh;
+        superset fab create-admin
+        --username "$SUPERSET_ADMIN_USER"
+        --firstname PagoPA --lastname Admin
+        --email admin@pagopa.it
+        --password "$SUPERSET_ADMIN_PSW"
+        || true
 
   supersetNode:
     replicas:
@@ -48,18 +44,28 @@ superset:
   supersetWorker:
     replicas:
       replicaCount: 1
+    command:
+      - "/bin/sh"
+      - "-c"
+      - >
+        . {{ .Values.configMountPath }}/superset_bootstrap.sh;
+        exec celery --app=superset.tasks.celery_app:app worker
+        --loglevel=INFO
+        --concurrency=2
+        --max-tasks-per-child=100
+        --max-memory-per-child=300000
     resources:
       requests:
         cpu: 100m
-        memory: 512Mi
+        memory: 768Mi
       limits:
-        memory: 1Gi
+        memory: 1536Mi
 
   ingress:
     hosts:
-      - superset.itn.internal.dev.platform.pagopa.it
+      - qa-superset.itn.internal.dev.platform.pagopa.it
     tls:
-      - secretName: superset-itn-internal-dev-platform-pagopa-it
+      - secretName: qa-superset-itn-internal-dev-platform-pagopa-it
         hosts:
-          - superset.itn.internal.dev.platform.pagopa.it
+          - qa-superset.itn.internal.dev.platform.pagopa.it
 
