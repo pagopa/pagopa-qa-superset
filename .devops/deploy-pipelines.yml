@@ -47,7 +47,7 @@ stages:
           - task: AzureCLI@2
             displayName: Azure login to DEV ACR
             inputs:
-              azureSubscription: '$(DEV_CONTAINER_REGISTRY_SERVICE_CONN)'
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
@@ -70,8 +70,6 @@ stages:
     jobs:
       - job: scanDevImage
         displayName: Scan the DEV image for vulnerabilities
-        pool:
-          name: '$(DEV_POOL_NAME)'
         steps:
           - checkout: self
             clean: true
