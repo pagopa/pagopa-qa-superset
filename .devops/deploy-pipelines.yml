@@ -80,11 +80,11 @@ stages:
             inputs:
               version: '$(TRIVY_VERSION)'
               type: 'image'
-              image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
+              target: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
               severities: 'HIGH,CRITICAL'
               ignoreUnfixed: true
+              ignoreScanErrors: true
               options: '--no-progress'
-              exitCode: '0'
 
 #  - stage: promote_to_uat
 #    displayName: Promote image [UAT]
