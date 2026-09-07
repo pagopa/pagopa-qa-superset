@@ -16,7 +16,7 @@ variables:
   IMAGE_NAME: 'pagopa-qa-superset'
   IMAGE_TAG: '$(Build.BuildId)'
 
-  TRIVY_VERSION: '0.57.1'
+  TRIVY_VERSION: '0.74.0'
 
 trigger: none
 
