@@ -138,7 +138,7 @@ stages:
                 -f $(HELM_CHART_PATH)/values-dev.yaml
                 --set-string superset.image.repository=$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
                 --set-string superset.image.tag=$(IMAGE_TAG)
-                --timeout 5m
+                --timeout 10m
 
 #  - stage: promote_to_uat
 #    displayName: Promote image [UAT]
