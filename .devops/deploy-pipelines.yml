@@ -5,8 +5,13 @@ parameters:
     default: dev
     values:
       - dev
-#      - uat
+      - uat
 #      - prod
+  
+  - name: SOURCE_IMAGE_TAG
+    displayName: 'Source image tag to promote (DEV -> UAT)'
+    type: string
+    default: latest
 
 variables:
   DEV_POOL_NAME: 'pagopa-dev-linux'
@@ -75,29 +80,13 @@ stages:
       - job: scanDevImage
         displayName: Scan the DEV image for vulnerabilities
         steps:
-          - checkout: self
-            clean: true
-
-          - task: AzureCLI@2
-            displayName: Azure login to DEV ACR
-            inputs:
+          - template: templates/steps-trivy-scan.yml
+            parameters:
               azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
-              scriptType: bash
-              scriptLocation: inlineScript
-              inlineScript: |
-                az acr login --name $(DEV_CONTAINER_NAMESPACE)
-
-          - task: Trivy@2
-            displayName: Run Trivy scan
-            continueOnError: true
-            inputs:
-              version: '$(TRIVY_VERSION)'
-              type: 'image'
-              target: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
-              severities: 'HIGH,CRITICAL'
-              ignoreUnfixed: true
-              ignoreScanErrors: true
-              options: '--no-progress --image-src remote'
+              acrName: '$(DEV_CONTAINER_NAMESPACE)'
+              image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
+              trivyVersion: '$(TRIVY_VERSION)'
+              continueOnError: true
 
   - stage: deploy_dev
     displayName: Deploy [DEV]
@@ -140,46 +129,50 @@ stages:
                 --set-string superset.image.tag=$(IMAGE_TAG)
                 --timeout 10m
 
-#  - stage: promote_to_uat
-#    displayName: Promote image [UAT]
-#    dependsOn: deploy_dev
-#    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
-#    jobs:
-#      - job: promoteUat
-#        displayName: Promote DEV -> UAT
-#        pool:
-#          name: '$(UAT_POOL_NAME)'
-#        steps:
-#          - checkout: self
-#            clean: true
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to DEV ACR
-#            inputs:
-#              azureSubscription: '$(DEV_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(DEV_ACR_NAME)
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to UAT ACR
-#            inputs:
-#              azureSubscription: '$(UAT_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(UAT_ACR_NAME)
-#
-#          - script: |
-#              set -euxo pipefail
-#              docker pull $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG) $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker push $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG) $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):uat-$(IMAGE_TAG)
-#              docker push $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):uat-$(IMAGE_TAG)
-#            displayName: Promote image from DEV to UAT
-#
+  - stage: promote_to_uat
+    displayName: Promote image [UAT]
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
+    jobs:
+      - job: promoteUat
+        displayName: Promote DEV -> UAT
+        pool:
+          name: '$(UAT_POOL_NAME)'
+        steps:
+          - template: templates/steps-trivy-scan.yml
+            parameters:
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
+              acrName: '$(DEV_CONTAINER_NAMESPACE)'
+              image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}'
+              trivyVersion: '$(TRIVY_VERSION)'
+              continueOnError: false
+
+          - task: AzureCLI@2
+            displayName: Import image DEV ACR -> UAT ACR
+            inputs:
+              azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                SRC="$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}"
+                echo "Importing $SRC -> $(UAT_ACR_NAME)"
+
+                # Copia server-side registry->registry (nessun docker pull/push locale).
+                # La DEV ACR ha pull anonimo: non servono credenziali sorgente.
+                # Se non lo fosse: aggiungere  --registry $(DEV_ACR_RESOURCE_ID)
+                az acr import \
+                  --name "$(UAT_ACR_NAME)" \
+                  --source "$SRC" \
+                  --image "$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}" \
+                  --registry $(DEV_ACR_RESOURCE_ID)
+
+                az acr import \
+                  --name "$(UAT_ACR_NAME)" \
+                  --source "$SRC" \
+                  --image "$(IMAGE_NAME):latest" \
+                  --registry $(UAT_ACR_RESOURCE_ID)
+
 #  - stage: prod_approval
 #    displayName: Approval [PROD]
 #    dependsOn: promote_to_uat
