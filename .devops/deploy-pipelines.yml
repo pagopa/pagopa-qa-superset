@@ -1,6 +1,6 @@
 parameters:
-  - name: DEPLOY_MODE
-    displayName: Deploy mode
+  - name: DEPLOY_ENV
+    displayName: Deploy ENV
     type: string
     default: dev
     values:
@@ -36,7 +36,7 @@ pool:
 stages:
   - stage: build_and_push_dev
     displayName: Build and Push [DEV]
-    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
       - job: buildPushDev
         displayName: Build and push DEV image
@@ -70,7 +70,7 @@ stages:
   - stage: trivy_scan_dev
     displayName: Trivy scan [DEV]
     dependsOn: build_and_push_dev
-    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
       - job: scanDevImage
         displayName: Scan the DEV image for vulnerabilities
@@ -102,7 +102,7 @@ stages:
   - stage: deploy_dev
     displayName: Deploy [DEV]
     dependsOn: trivy_scan_dev
-    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
       - job: helmDeployDev
         displayName: Helm upgrade on AKS DEV
@@ -143,7 +143,7 @@ stages:
 #  - stage: promote_to_uat
 #    displayName: Promote image [UAT]
 #    dependsOn: deploy_dev
-#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'uat')
+#    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
 #    jobs:
 #      - job: promoteUat
 #        displayName: Promote DEV -> UAT
@@ -183,7 +183,7 @@ stages:
 #  - stage: prod_approval
 #    displayName: Approval [PROD]
 #    dependsOn: promote_to_uat
-#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'prod')
+#    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
 #    jobs:
 #      - job: prodApproval
 #        displayName: Wait for PROD approval
@@ -201,7 +201,7 @@ stages:
 #  - stage: promote_to_prod
 #    displayName: Promote image [PROD]
 #    dependsOn: prod_approval
-#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'prod')
+#    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
 #    jobs:
 #      - job: promoteProd
 #        displayName: Promote UAT -> PROD
