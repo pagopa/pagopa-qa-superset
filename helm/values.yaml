@@ -31,7 +31,6 @@ superset:
     cacheDb: 0
     celeryDb: 0
     ssl:
-      # -> URL Redis in formato rediss:// + ?ssl_cert_reqs=<valore>
       enabled: true
       ssl_cert_reqs: none
 
@@ -46,11 +45,6 @@ superset:
       import ssl as _ssl
 
       SECRET_KEY = env("SUPERSET_SECRET_KEY")
-
-      # Gli esempi (load_examples) di default finirebbero in uno SQLite locale
-      # effimero e per-pod: le tabelle non sarebbero visibili a web/worker.
-      # Li puntiamo sullo stesso Postgres Azure gia' usato per i metadati.
-      SQLALCHEMY_EXAMPLES_URI = SQLALCHEMY_DATABASE_URI
 
       _redis_tls = env("REDIS_PROTO", "redis") == "rediss"
       _cert_reqs = {
@@ -70,8 +64,6 @@ superset:
       )
 
       if _redis_tls:
-          # kombu non deduce sempre il TLS dall'URL rediss:// per broker e result
-          # backend Celery: lo forziamo esplicitamente.
           CELERY_CONFIG.broker_use_ssl = {"ssl_cert_reqs": _cert_reqs}
           CELERY_CONFIG.redis_backend_use_ssl = {"ssl_cert_reqs": _cert_reqs}
 

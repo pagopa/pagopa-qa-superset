@@ -18,6 +18,10 @@ variables:
 
   TRIVY_VERSION: '0.74.0'
 
+  HELM_RELEASE_NAME: 'pagopa-qa-superset'
+  HELM_CHART_PATH: 'helm'
+  DEV_AKS_NAMESPACE: 'qa'
+
 trigger: none
 
 pr:
@@ -95,9 +99,50 @@ stages:
               ignoreScanErrors: true
               options: '--no-progress --image-src remote'
 
+  - stage: deploy_dev
+    displayName: Deploy [DEV]
+    dependsOn: trivy_scan_dev
+    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    jobs:
+      - job: helmDeployDev
+        displayName: Helm upgrade on AKS DEV
+        pool:
+          name: '$(DEV_POOL_NAME)'
+        steps:
+          - checkout: self
+            clean: true
+
+          - task: HelmInstaller@1
+            displayName: Install Helm
+
+          - script: |
+              helm repo add superset https://apache.github.io/superset
+              helm repo update
+              helm dependency update ./$(HELM_CHART_PATH)
+            displayName: Build Helm chart dependencies
+
+          - task: HelmDeploy@1
+            displayName: Helm upgrade to AKS DEV
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(DEV_AKS_SERVICE_CONNECTION)'
+              namespace: '$(DEV_AKS_NAMESPACE)'
+              command: 'upgrade'
+              chartType: 'FilePath'
+              chartPath: '$(HELM_CHART_PATH)'
+              releaseName: '$(HELM_RELEASE_NAME)'
+              install: true
+              valueFile: '$(HELM_CHART_PATH)/values.yaml'
+              waitForExecution: true
+              arguments: >-
+                -f $(HELM_CHART_PATH)/values-dev.yaml
+                --set-string superset.image.repository=$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
+                --set-string superset.image.tag=$(IMAGE_TAG)
+                --timeout 5m
+
 #  - stage: promote_to_uat
 #    displayName: Promote image [UAT]
-#    dependsOn: trivy_scan_dev
+#    dependsOn: deploy_dev
 #    condition: eq('${{ parameters.DEPLOY_MODE }}', 'uat')
 #    jobs:
 #      - job: promoteUat

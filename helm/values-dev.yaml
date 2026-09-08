@@ -15,6 +15,11 @@ superset:
     # In dev conviene vedere gli errori applicativi.
     WTF_CSRF_ENABLED: true
 
+  # Solo in dev: carica i dataset/dashboard di esempio e li mette sullo stesso db
+  configOverrides:
+    pagopa-dev-examples: |
+      SQLALCHEMY_EXAMPLES_URI = SQLALCHEMY_DATABASE_URI
+
   init:
     createAdmin: false
     loadExamples: true
