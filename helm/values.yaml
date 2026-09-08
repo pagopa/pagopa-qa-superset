@@ -163,8 +163,8 @@ superset:
               - key: node_type
                 operator: In
                 values:
-                  - user
+                  - "user"
               - key: critical
                 operator: In
                 values:
-                  - false
+                  - "false"
