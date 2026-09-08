@@ -149,7 +149,7 @@ superset:
     create: false
   serviceAccountName: "qa-workload-identity"
 
-  toleration:
+  tolerations:
     - key: "dedicated"
       operator: "Equal"
       value: "nonCritical"
