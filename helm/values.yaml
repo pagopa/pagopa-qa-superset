@@ -148,3 +148,23 @@ superset:
   serviceAccount:
     create: false
   serviceAccountName: "qa-workload-identity"
+
+  toleration:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "nonCritical"
+      effect: "NoSchedule"
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node_type
+                operator: In
+                values:
+                  - user
+              - key: critical
+                operator: In
+                values:
+                  - false
