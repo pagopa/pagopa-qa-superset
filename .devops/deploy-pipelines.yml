@@ -158,9 +158,7 @@ stages:
                 SRC="$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}"
                 echo "Importing $SRC -> $(UAT_ACR_NAME)"
 
-                # Copia server-side registry->registry (nessun docker pull/push locale).
-                # La DEV ACR ha pull anonimo: non servono credenziali sorgente.
-                # Se non lo fosse: aggiungere  --registry $(DEV_ACR_RESOURCE_ID)
+                # Copia server-side registry->registry
                 az acr import \
                   --name "$(UAT_ACR_NAME)" \
                   --source "$SRC" \
