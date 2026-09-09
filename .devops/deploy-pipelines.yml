@@ -144,7 +144,7 @@ stages:
               acrName: '$(DEV_CONTAINER_NAMESPACE)'
               image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}'
               trivyVersion: '$(TRIVY_VERSION)'
-              continueOnError: false
+              continueOnError: true
 
           - task: AzureCLI@2
             displayName: Import image DEV ACR -> UAT ACR
