@@ -155,21 +155,22 @@ stages:
               inlineScript: |
                 set -euo pipefail
 
-                SRC="$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}"
-                echo "Importing $SRC -> $(UAT_ACR_NAME)"
-
-                # Copia server-side registry->registry
-                az acr import \
-                  --name "$(UAT_ACR_NAME)" \
-                  --source "$SRC" \
-                  --image "$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}" \
-                  --registry "$(DEV_ACR_RESOURCE_ID)"
+                SRC="${DEV_NS}/${IMG}:${SRC_TAG}"
+                echo "Importing $SRC -> $UAT_ACR_NAME"
 
                 az acr import \
-                  --name "$(UAT_ACR_NAME)" \
+                  --name "$UAT_ACR_NAME" \
                   --source "$SRC" \
-                  --image "$(IMAGE_NAME):latest" \
-                  --registry "$(UAT_ACR_RESOURCE_ID)"
+                  --image "${IMG}:${SRC_TAG}" \
+                  --image "${IMG}:latest" \
+                  --registry "$DEV_ACR_RESOURCE_ID" \
+                  --force
+            env:
+              DEV_NS: $(DEV_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+              UAT_ACR_NAME: $(UAT_ACR_NAME)
+              DEV_ACR_RESOURCE_ID: $(DEV_ACR_RESOURCE_ID)
 
 #  - stage: prod_approval
 #    displayName: Approval [PROD]
