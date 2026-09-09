@@ -195,7 +195,7 @@ stages:
 
   - stage: deploy_uat
     displayName: Deploy [UAT]
-    dependsOn: trivy_scan_uat
+    dependsOn: promote_to_uat
     condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
     jobs:
       - job: helmDeployDev
