@@ -147,7 +147,22 @@ stages:
               continueOnError: true
 
           - task: AzureCLI@2
-            displayName: Import image DEV ACR -> UAT ACR
+            displayName: Pull image from DEV ACR
+            inputs:
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name "${DEV_NS%%.*}"
+                docker pull "${DEV_NS}/${IMG}:${SRC_TAG}"
+            env:
+              DEV_NS: $(DEV_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+
+          - task: AzureCLI@2
+            displayName: Push image to UAT ACR
             inputs:
               azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
               scriptType: bash
@@ -155,22 +170,18 @@ stages:
               inlineScript: |
                 set -euo pipefail
 
-                SRC="${DEV_NS}/${IMG}:${SRC_TAG}"
-                echo "Importing $SRC -> $UAT_ACR_NAME"
+                echo "Pushing ${DEV_NS}/${IMG}:${SRC_TAG} -> ${UAT_NS}/${IMG}"
 
-                az acr import \
-                  --name "$UAT_ACR_NAME" \
-                  --source "$SRC" \
-                  --image "${IMG}:${SRC_TAG}" \
-                  --image "${IMG}:latest" \
-                  --registry "$DEV_ACR_RESOURCE_ID" \
-                  --force
+                az acr login --name "${UAT_NS%%.*}"
+                docker tag "${DEV_NS}/${IMG}:${SRC_TAG}" "${UAT_NS}/${IMG}:${SRC_TAG}"
+                docker tag "${DEV_NS}/${IMG}:${SRC_TAG}" "${UAT_NS}/${IMG}:latest"
+                docker push "${UAT_NS}/${IMG}:${SRC_TAG}"
+                docker push "${UAT_NS}/${IMG}:latest"
             env:
               DEV_NS: $(DEV_CONTAINER_NAMESPACE)
               IMG: $(IMAGE_NAME)
               SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
-              UAT_ACR_NAME: $(UAT_ACR_NAME)
-              DEV_ACR_RESOURCE_ID: $(DEV_ACR_RESOURCE_ID)
+              UAT_NS: $(UAT_CONTAINER_NAMESPACE)
 
 #  - stage: prod_approval
 #    displayName: Approval [PROD]
