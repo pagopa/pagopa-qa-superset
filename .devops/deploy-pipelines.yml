@@ -231,7 +231,7 @@ stages:
               arguments: >-
                 -f $(HELM_CHART_PATH)/values-uat.yaml
                 --set-string superset.image.repository=$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
-                --set-string superset.image.tag=$(SOURCE_IMAGE_TAG)
+                --set-string superset.image.tag=${{ parameters.SOURCE_IMAGE_TAG }}
                 --timeout 10m
 
 #  - stage: prod_approval
