@@ -193,6 +193,47 @@ stages:
               SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
               UAT_NS: $(UAT_CONTAINER_NAMESPACE)
 
+  - stage: deploy_uat
+    displayName: Deploy [UAT]
+    dependsOn: trivy_scan_uat
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
+    jobs:
+      - job: helmDeployDev
+        displayName: Helm upgrade on AKS UAT
+        pool:
+          name: '$(UAT_POOL_NAME)'
+        steps:
+          - checkout: self
+            clean: true
+
+          - task: HelmInstaller@1
+            displayName: Install Helm
+
+          - script: |
+              helm repo add superset https://apache.github.io/superset
+              helm repo update
+              helm dependency update ./$(HELM_CHART_PATH)
+            displayName: Build Helm chart dependencies
+
+          - task: HelmDeploy@1
+            displayName: Helm upgrade to AKS UAT
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(UAT_AKS_SERVICE_CONNECTION)'
+              namespace: '$(UAT_AKS_NAMESPACE)'
+              command: 'upgrade'
+              chartType: 'FilePath'
+              chartPath: '$(HELM_CHART_PATH)'
+              releaseName: '$(HELM_RELEASE_NAME)'
+              install: true
+              valueFile: '$(HELM_CHART_PATH)/values.yaml'
+              waitForExecution: true
+              arguments: >-
+                -f $(HELM_CHART_PATH)/values-uat.yaml
+                --set-string superset.image.repository=$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
+                --set-string superset.image.tag=$(IMAGE_TAG)
+                --timeout 10m
+
 #  - stage: prod_approval
 #    displayName: Approval [PROD]
 #    dependsOn: promote_to_uat
