@@ -91,7 +91,6 @@ stages:
   - stage: deploy_dev
     displayName: Deploy [DEV]
     dependsOn: trivy_scan_dev
-    dependsOn: trivy_scan_dev
     condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
       - job: helmDeployDev
