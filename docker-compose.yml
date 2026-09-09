@@ -80,10 +80,10 @@ services:
           --password "$${SUPERSET_ADMIN_PASSWORD}" || true
         /app/.venv/bin/superset init
         /app/.venv/bin/superset run -p 8088 --host 0.0.0.0 --with-threads
-    volumes:
-      - superset_home:/app
+    # volumes:
+    #   - superset_home:/app
 
 volumes:
   postgres_data:
   redis_data:
-  superset_home:
+  # superset_home:
