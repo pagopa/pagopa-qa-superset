@@ -32,7 +32,9 @@ RUN apt-get update && \
         pkg-config \
         python3-dev \
         tini \
-        tzdata && \
+        tzdata \
+        libsasl2-dev \
+        libsasl2-modules-gssapi-mit && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -63,7 +65,8 @@ RUN uv pip install \
     authlib \
     psycopg2-binary \
     requests \
-    pyjwt
+    pyjwt \
+    impyla
 
 USER superset
 
