@@ -25,7 +25,7 @@ variables:
 
   HELM_RELEASE_NAME: 'pagopa-qa-superset'
   HELM_CHART_PATH: 'helm'
-  DEV_AKS_NAMESPACE: 'qa'
+  AKS_NAMESPACE: 'qa'
 
 trigger: none
 
@@ -115,7 +115,7 @@ stages:
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceConnection: '$(DEV_AKS_SERVICE_CONNECTION)'
-              namespace: '$(DEV_AKS_NAMESPACE)'
+              namespace: '$(AKS_NAMESPACE)'
               command: 'upgrade'
               chartType: 'FilePath'
               chartPath: '$(HELM_CHART_PATH)'
@@ -220,7 +220,7 @@ stages:
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceConnection: '$(UAT_AKS_SERVICE_CONNECTION)'
-              namespace: '$(UAT_AKS_NAMESPACE)'
+              namespace: '$(AKS_NAMESPACE)'
               command: 'upgrade'
               chartType: 'FilePath'
               chartPath: '$(HELM_CHART_PATH)'
