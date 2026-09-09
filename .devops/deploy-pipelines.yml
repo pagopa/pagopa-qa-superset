@@ -163,13 +163,13 @@ stages:
                   --name "$(UAT_ACR_NAME)" \
                   --source "$SRC" \
                   --image "$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}" \
-                  --registry $(DEV_ACR_RESOURCE_ID)
+                  --registry "$(DEV_ACR_RESOURCE_ID)"
 
                 az acr import \
                   --name "$(UAT_ACR_NAME)" \
                   --source "$SRC" \
                   --image "$(IMAGE_NAME):latest" \
-                  --registry $(UAT_ACR_RESOURCE_ID)
+                  --registry "$(UAT_ACR_RESOURCE_ID)"
 
 #  - stage: prod_approval
 #    displayName: Approval [PROD]
