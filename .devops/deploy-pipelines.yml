@@ -9,7 +9,7 @@ parameters:
 #      - prod
   
   - name: SOURCE_IMAGE_TAG
-    displayName: 'Source image tag to promote (DEV -> UAT)'
+    displayName: 'Source image tag to promote and deploy (DEV -> UAT)'
     type: string
     default: latest
 
@@ -90,6 +90,7 @@ stages:
 
   - stage: deploy_dev
     displayName: Deploy [DEV]
+    dependsOn: trivy_scan_dev
     dependsOn: trivy_scan_dev
     condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
@@ -231,7 +232,7 @@ stages:
               arguments: >-
                 -f $(HELM_CHART_PATH)/values-uat.yaml
                 --set-string superset.image.repository=$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
-                --set-string superset.image.tag=$(IMAGE_TAG)
+                --set-string superset.image.tag=$(SOURCE_IMAGE_TAG)
                 --timeout 10m
 
 #  - stage: prod_approval
