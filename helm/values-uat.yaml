@@ -1,26 +1,23 @@
 superset:
   image:
-    repository: pagopaditncoreacr.azurecr.io/pagopa-qa-superset
+    repository: pagopauitncoreacr.azurecr.io/pagopa-qa-superset
     tag: latest
     pullPolicy: Always
 
   extraEnv:
-    ENVIRONMENT: dev
+    ENVIRONMENT: uat
 
   config:
     ROW_LIMIT: 50000
     SUPERSET_WEBSERVER_TIMEOUT: 300
     # In dev conviene vedere gli errori applicativi.
-    WTF_CSRF_ENABLED: true
+    WTF_CSRF_ENABLED: false
 
-  # Solo in dev: carica i dataset/dashboard di esempio e li mette sullo stesso db
-  configOverrides:
-    pagopa-dev-examples: |
-      SQLALCHEMY_EXAMPLES_URI = SQLALCHEMY_DATABASE_URI
+  #configOverrides:
 
   init:
     createAdmin: false
-    loadExamples: true
+    loadExamples: false
     command:
       - "/bin/sh"
       - "-c"
@@ -66,9 +63,9 @@ superset:
 
   ingress:
     hosts:
-      - qa-superset.itn.internal.dev.platform.pagopa.it
+      - qa-superset.itn.internal.uat.platform.pagopa.it
     tls:
-      - secretName: qa-superset-itn-internal-dev-platform-pagopa-it
+      - secretName: qa-superset-itn-internal-uat-platform-pagopa-it
         hosts:
-          - qa-superset.itn.internal.dev.platform.pagopa.it
+          - qa-superset.itn.internal.uat.platform.pagopa.it
 
