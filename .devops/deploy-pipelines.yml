@@ -7,9 +7,9 @@ parameters:
       - dev
       - uat
 #      - prod
-  
+
   - name: SOURCE_IMAGE_TAG
-    displayName: 'Source image tag to promote and deploy (DEV -> UAT)'
+    displayName: 'Source image tag to promote and deploy (DEV -> UAT, UAT -> PROD)'
     type: string
     default: latest
 
@@ -98,36 +98,15 @@ stages:
         pool:
           name: '$(DEV_POOL_NAME)'
         steps:
-          - checkout: self
-            clean: true
-
-          - task: HelmInstaller@1
-            displayName: Install Helm
-
-          - script: |
-              helm repo add superset https://apache.github.io/superset
-              helm repo update
-              helm dependency update ./$(HELM_CHART_PATH)
-            displayName: Build Helm chart dependencies
-
-          - task: HelmDeploy@1
-            displayName: Helm upgrade to AKS DEV
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
+          - template: templates/steps-helm-deploy.yml
+            parameters:
+              environmentName: dev
               kubernetesServiceConnection: '$(DEV_AKS_SERVICE_CONNECTION)'
-              namespace: '$(AKS_NAMESPACE)'
-              command: 'upgrade'
-              chartType: 'FilePath'
-              chartPath: '$(HELM_CHART_PATH)'
-              releaseName: '$(HELM_RELEASE_NAME)'
-              install: true
-              valueFile: '$(HELM_CHART_PATH)/values.yaml'
-              waitForExecution: true
-              arguments: >-
-                -f $(HELM_CHART_PATH)/values-dev.yaml
-                --set-string superset.image.repository=$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
-                --set-string superset.image.tag=$(IMAGE_TAG)
-                --timeout 10m
+              imageRepository: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME)'
+              imageTag: '$(IMAGE_TAG)'
+              helmChartPath: '$(HELM_CHART_PATH)'
+              helmReleaseName: '$(HELM_RELEASE_NAME)'
+              aksNamespace: '$(AKS_NAMESPACE)'
 
   - stage: trivy_scan_uat
     displayName: Trivy scan [UAT]
@@ -198,96 +177,119 @@ stages:
     dependsOn: promote_to_uat
     condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
     jobs:
-      - job: helmDeployDev
+      - job: helmDeployUat
         displayName: Helm upgrade on AKS UAT
         pool:
           name: '$(UAT_POOL_NAME)'
         steps:
-          - checkout: self
-            clean: true
-
-          - task: HelmInstaller@1
-            displayName: Install Helm
-
-          - script: |
-              helm repo add superset https://apache.github.io/superset
-              helm repo update
-              helm dependency update ./$(HELM_CHART_PATH)
-            displayName: Build Helm chart dependencies
-
-          - task: HelmDeploy@1
-            displayName: Helm upgrade to AKS UAT
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
+          - template: templates/steps-helm-deploy.yml
+            parameters:
+              environmentName: uat
               kubernetesServiceConnection: '$(UAT_AKS_SERVICE_CONNECTION)'
-              namespace: '$(AKS_NAMESPACE)'
-              command: 'upgrade'
-              chartType: 'FilePath'
-              chartPath: '$(HELM_CHART_PATH)'
-              releaseName: '$(HELM_RELEASE_NAME)'
-              install: true
-              valueFile: '$(HELM_CHART_PATH)/values.yaml'
-              waitForExecution: true
-              arguments: >-
-                -f $(HELM_CHART_PATH)/values-uat.yaml
-                --set-string superset.image.repository=$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME)
-                --set-string superset.image.tag=${{ parameters.SOURCE_IMAGE_TAG }}
-                --timeout 10m
+              imageRepository: '$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME)'
+              imageTag: '${{ parameters.SOURCE_IMAGE_TAG }}'
+              helmChartPath: '$(HELM_CHART_PATH)'
+              helmReleaseName: '$(HELM_RELEASE_NAME)'
+              aksNamespace: '$(AKS_NAMESPACE)'
 
-#  - stage: prod_approval
-#    displayName: Approval [PROD]
-#    dependsOn: promote_to_uat
-#    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
-#    jobs:
-#      - job: prodApproval
-#        displayName: Wait for PROD approval
-#        pool:
-#          vmImage: 'ubuntu-22.04'
-#        steps:
-#          - task: ManualValidation@0
-#            displayName: Manual approval for production deployment
-#            timeoutInMinutes: 1440
-#            instructions: |
-#              Review the UAT promotion result and approve the production deployment.
-#              If the image is not ready, reject the deployment.
-#            onTimeout: 'reject'
-#
-#  - stage: promote_to_prod
-#    displayName: Promote image [PROD]
-#    dependsOn: prod_approval
-#    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
-#    jobs:
-#      - job: promoteProd
-#        displayName: Promote UAT -> PROD
-#        pool:
-#          name: '$(PROD_POOL_NAME)'
-#        steps:
-#          - checkout: self
-#            clean: true
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to UAT ACR
-#            inputs:
-#              azureSubscription: '$(UAT_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(UAT_ACR_NAME)
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to PROD ACR
-#            inputs:
-#              azureSubscription: '$(PROD_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(PROD_ACR_NAME)
-#
-#          - script: |
-#              set -euxo pipefail
-#              docker pull $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG) $(PROD_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker push $(PROD_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG) $(PROD_CONTAINER_NAMESPACE)/$(IMAGE_NAME):prod-$(IMAGE_TAG)
-#              docker push $(PROD_CONTAINER_NAMESPACE)/$(IMAGE_NAME):prod-$(IMAGE_TAG)
-#            displayName: Promote image from UAT to PROD
+  - stage: trivy_scan_prod
+    displayName: Trivy scan [PROD]
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: scanProdSourceImage
+        displayName: Scan the image to promote for vulnerabilities
+        pool:
+          name: '$(PROD_POOL_NAME)'
+        steps:
+          - template: templates/steps-trivy-scan.yml
+            parameters:
+              azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
+              acrName: '$(UAT_CONTAINER_NAMESPACE)'
+              image: '$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}'
+              trivyVersion: '$(TRIVY_VERSION)'
+              continueOnError: true
+
+  - stage: prod_approval
+    displayName: Approval [PROD]
+    dependsOn: trivy_scan_prod
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: prodApproval
+        displayName: Wait for PROD approval
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: Manual approval for production deployment
+            timeoutInMinutes: 1440
+            inputs:
+              instructions: |
+                Review the UAT promotion result and approve the production deployment.
+                If the image is not ready, reject the deployment.
+              onTimeout: 'reject'
+
+  - stage: promote_to_prod
+    displayName: Promote image [PROD]
+    dependsOn: prod_approval
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: promoteProd
+        displayName: Promote UAT -> PROD
+        pool:
+          name: '$(PROD_POOL_NAME)'
+        steps:
+          - task: AzureCLI@2
+            displayName: Pull image from UAT ACR
+            inputs:
+              azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name "${UAT_NS%%.*}"
+                docker pull "${UAT_NS}/${IMG}:${SRC_TAG}"
+            env:
+              UAT_NS: $(UAT_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+
+          - task: AzureCLI@2
+            displayName: Push image to PROD ACR
+            inputs:
+              azureSubscription: '$(PROD_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                echo "Pushing ${UAT_NS}/${IMG}:${SRC_TAG} -> ${PROD_NS}/${IMG}"
+
+                az acr login --name "${PROD_NS%%.*}"
+                docker tag "${UAT_NS}/${IMG}:${SRC_TAG}" "${PROD_NS}/${IMG}:${SRC_TAG}"
+                docker tag "${UAT_NS}/${IMG}:${SRC_TAG}" "${PROD_NS}/${IMG}:latest"
+                docker push "${PROD_NS}/${IMG}:${SRC_TAG}"
+                docker push "${PROD_NS}/${IMG}:latest"
+            env:
+              UAT_NS: $(UAT_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+              PROD_NS: $(PROD_CONTAINER_NAMESPACE)
+
+  - stage: deploy_prod
+    displayName: Deploy [PROD]
+    dependsOn: promote_to_prod
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: helmDeployProd
+        displayName: Helm upgrade on AKS PROD
+        pool:
+          name: '$(PROD_POOL_NAME)'
+        steps:
+          - template: templates/steps-helm-deploy.yml
+            parameters:
+              environmentName: prod
+              kubernetesServiceConnection: '$(PROD_AKS_SERVICE_CONNECTION)'
+              imageRepository: '$(PROD_CONTAINER_NAMESPACE)/$(IMAGE_NAME)'
+              imageTag: '${{ parameters.SOURCE_IMAGE_TAG }}'
+              helmChartPath: '$(HELM_CHART_PATH)'
+              helmReleaseName: '$(HELM_RELEASE_NAME)'
+              aksNamespace: '$(AKS_NAMESPACE)'
