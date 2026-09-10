@@ -42,6 +42,8 @@ stages:
 
           - task: HelmInstaller@1
             displayName: Install Helm
+            inputs:
+              helmVersionToInstall: 'v3.14.0'
 
           - script: |
               set -euo pipefail
