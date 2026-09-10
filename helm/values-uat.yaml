@@ -1,0 +1,71 @@
+superset:
+  image:
+    repository: pagopauitncoreacr.azurecr.io/pagopa-qa-superset
+    tag: latest
+    pullPolicy: Always
+
+  extraEnv:
+    ENVIRONMENT: uat
+
+  config:
+    ROW_LIMIT: 50000
+    SUPERSET_WEBSERVER_TIMEOUT: 300
+    # In dev conviene vedere gli errori applicativi.
+    WTF_CSRF_ENABLED: false
+
+  #configOverrides:
+
+  init:
+    createAdmin: false
+    loadExamples: false
+    command:
+      - "/bin/sh"
+      - "-c"
+      - >
+        . {{ .Values.configMountPath }}/superset_bootstrap.sh;
+        . {{ .Values.configMountPath }}/superset_init.sh;
+        superset fab create-admin
+        --username "$SUPERSET_ADMIN_USER"
+        --firstname PagoPA --lastname Admin
+        --email admin@pagopa.it
+        --password "$SUPERSET_ADMIN_PSW"
+        || true
+
+  supersetNode:
+    replicas:
+      replicaCount: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+  supersetWorker:
+    replicas:
+      replicaCount: 1
+    command:
+      - "/bin/sh"
+      - "-c"
+      - >
+        . {{ .Values.configMountPath }}/superset_bootstrap.sh;
+        exec celery --app=superset.tasks.celery_app:app worker
+        --loglevel=INFO
+        --concurrency=2
+        --max-tasks-per-child=100
+        --max-memory-per-child=300000
+    resources:
+      requests:
+        cpu: 100m
+        memory: 768Mi
+      limits:
+        memory: 1536Mi
+
+  ingress:
+    hosts:
+      - qa-superset.itn.internal.uat.platform.pagopa.it
+    tls:
+      - secretName: qa-superset-itn-internal-uat-platform-pagopa-it
+        hosts:
+          - qa-superset.itn.internal.uat.platform.pagopa.it
+

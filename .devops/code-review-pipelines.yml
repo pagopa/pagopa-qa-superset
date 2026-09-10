@@ -10,23 +10,63 @@ pr:
       - main
       - develop
 
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  HELM_CHART_PATH: 'helm'
+
 stages:
   - stage: code_review
-    displayName: Dockerfile Lint
+    displayName: Code Review
     jobs:
       - job: lint_dockerfile
         displayName: Lint Dockerfile
-        pool:
-          vmImage: ubuntu-latest
-
         steps:
           - checkout: self
             clean: true
 
           - script: |
               set -euo pipefail
-              docker run --rm \
+              docker run --rm -i \
                 -v "$(Build.SourcesDirectory):/workspace" \
                 -w /workspace \
-                hadolint/hadolint Dockerfile
+                hadolint/hadolint hadolint Dockerfile
             displayName: Run hadolint on Dockerfile
+
+      - job: lint_helm
+        displayName: Lint Helm chart
+        steps:
+          - checkout: self
+            clean: true
+
+          - task: HelmInstaller@1
+            displayName: Install Helm
+            inputs:
+              helmVersionToInstall: 'v3.14.0'
+
+          - script: |
+              set -euo pipefail
+              helm repo add superset https://apache.github.io/superset
+              helm repo update
+              helm dependency update ./$(HELM_CHART_PATH)
+            displayName: Build Helm chart dependencies
+
+          - script: |
+              set -euo pipefail
+              helm lint ./$(HELM_CHART_PATH) -f ./$(HELM_CHART_PATH)/values.yaml
+              helm lint ./$(HELM_CHART_PATH) \
+                -f ./$(HELM_CHART_PATH)/values.yaml \
+                -f ./$(HELM_CHART_PATH)/values-dev.yaml
+            displayName: helm lint
+
+          - script: |
+              set -euo pipefail
+              helm template pagopa-qa-superset ./$(HELM_CHART_PATH) \
+                -f ./$(HELM_CHART_PATH)/values.yaml \
+                --set-string superset.image.tag=ci > /dev/null
+              helm template pagopa-qa-superset ./$(HELM_CHART_PATH) \
+                -f ./$(HELM_CHART_PATH)/values.yaml \
+                -f ./$(HELM_CHART_PATH)/values-dev.yaml \
+                --set-string superset.image.tag=ci > /dev/null
+            displayName: helm template

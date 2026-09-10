@@ -1,0 +1,170 @@
+superset:
+  image:
+    # Immagine custom buildata da questo repo
+    # Il registry viene sovrascritto per ambiente.
+    repository: pagopaditncoreacr.azurecr.io/pagopa-qa-superset
+    # Il tag viene passato dalla pipeline: --set superset.image.tag=$(Build.BuildId)
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # L'immagine ufficiale Superset gira come utente `superset` (uid 1000).
+  runAsUser: 1000
+
+  postgresql:
+    enabled: false
+
+  database:
+    ssl:
+      enabled: true
+      mode: require
+
+  configMountPath: "/app/pythonpath"
+
+  # Si usa Azure Managed Redis.
+  redis:
+    enabled: false
+
+  envFromSecret: pagopa-superset-secret
+
+  cache:
+    enabled: true
+    cacheDb: 0
+    celeryDb: 0
+    ssl:
+      enabled: true
+      ssl_cert_reqs: none
+
+  secretEnv:
+    create: false
+
+  extraEnv:
+    TZ: Europe/Rome
+
+  configOverrides:
+    pagopa-managed-services: |
+      import ssl as _ssl
+
+      SECRET_KEY = env("SUPERSET_SECRET_KEY")
+
+      _redis_tls = env("REDIS_PROTO", "redis") == "rediss"
+      _cert_reqs = {
+          "none": _ssl.CERT_NONE,
+          "optional": _ssl.CERT_OPTIONAL,
+          "required": _ssl.CERT_REQUIRED,
+      }.get(env("REDIS_SSL_CERT_REQS", "none").lower(), _ssl.CERT_NONE)
+
+      RESULTS_BACKEND = RedisCache(
+          host=env("REDIS_HOST"),
+          port=int(env("REDIS_PORT", "10000")),
+          password=env("REDIS_PASSWORD") or None,
+          db=int(env("REDIS_CELERY_DB", "0")),
+          key_prefix="superset_results",
+          ssl=_redis_tls,
+          ssl_cert_reqs=_cert_reqs,
+      )
+
+      if _redis_tls:
+          CELERY_CONFIG.broker_use_ssl = {"ssl_cert_reqs": _cert_reqs}
+          CELERY_CONFIG.redis_backend_use_ssl = {"ssl_cert_reqs": _cert_reqs}
+
+  # ---------------------------------------------------------------------------
+  # Componenti
+  # ---------------------------------------------------------------------------
+  supersetNode:
+    replicas:
+      enabled: true
+      replicaCount: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    terminationGracePeriodSeconds: 330
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "sleep 15"]
+
+  supersetWorker:
+    replicas:
+      enabled: true
+    # -- Worker startup command
+    # @default -- a `celery worker` command
+    command:
+      - "/bin/sh"
+      - "-c"
+      - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"
+    # -- If true, forces deployment to reload on each upgrade
+    forceReload: false
+
+  # Serve solo per alert & report schedulati.
+  supersetCeleryBeat:
+    enabled: false
+
+  # UI di monitoraggio Celery: non esposta.
+  supersetCeleryFlower:
+    enabled: false
+
+  supersetWebsockets:
+    enabled: false
+
+  supersetMcp:
+    enabled: false
+
+  # ---------------------------------------------------------------------------
+  # Job di init (db upgrade + superset init [+ create-admin])
+  # ---------------------------------------------------------------------------
+  init:
+    enabled: true
+    loadExamples: false
+    createAdmin: false
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+  # ---------------------------------------------------------------------------
+  # Esposizione
+  # ---------------------------------------------------------------------------
+  service:
+    type: ClusterIP
+    port: 8088
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/force-ssl-redirect : "true"
+      nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    path: /
+    pathType: ImplementationSpecific
+    extraHostsRaw: []
+
+  serviceAccount:
+    create: false
+  serviceAccountName: "qa-workload-identity"
+
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "nonCritical"
+      effect: "NoSchedule"
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node_type
+                operator: In
+                values:
+                  - "user"
+              - key: critical
+                operator: In
+                values:
+                  - "false"

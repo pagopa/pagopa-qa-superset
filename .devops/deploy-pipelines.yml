@@ -1,28 +1,34 @@
 parameters:
-  - name: DEPLOY_MODE
-    displayName: Deploy mode
+  - name: DEPLOY_ENV
+    displayName: Deploy ENV
     type: string
     default: dev
     values:
       - dev
-#      - uat
+      - uat
 #      - prod
+
+  - name: SOURCE_IMAGE_TAG
+    displayName: 'Source image tag to promote and deploy (DEV -> UAT, UAT -> PROD)'
+    type: string
+    default: latest
 
 variables:
   DEV_POOL_NAME: 'pagopa-dev-linux'
+  UAT_POOL_NAME: 'pagopa-uat-linux'
+  PROD_POOL_NAME: 'pagopa-prod-linux'
 
   IMAGE_NAME: 'pagopa-qa-superset'
   IMAGE_TAG: '$(Build.BuildId)'
 
-  DEV_CONTAINER_REGISTRY_SERVICE_CONN: 'pagopa-qa-acr-connection'
+  TRIVY_VERSION: '0.74.0'
 
-  DEV_ACR_NAME: 'pagopadcommonacr'
-
-  TRIVY_VERSION: '0.57.1'
-
-  SOURCE_BRANCH: '${{ variables[''Build.SourceBranchName''] }}'
+  HELM_RELEASE_NAME: 'pagopa-qa-superset'
+  HELM_CHART_PATH: 'helm'
+  AKS_NAMESPACE: 'qa'
 
 trigger: none
+
 pr:
   branches:
     include:
@@ -35,12 +41,11 @@ pool:
 stages:
   - stage: build_and_push_dev
     displayName: Build and Push [DEV]
-    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
       - job: buildPushDev
         displayName: Build and push DEV image
-        pool:
-          name: '$(DEV_POOL_NAME)'
+
         steps:
           - checkout: self
             clean: true
@@ -51,150 +56,240 @@ stages:
           - task: AzureCLI@2
             displayName: Azure login to DEV ACR
             inputs:
-              azureSubscription: '$(DEV_CONTAINER_REGISTRY_SERVICE_CONN)'
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
-                az acr login --name $(DEV_ACR_NAME)
+                az acr login --name $(DEV_CONTAINER_NAMESPACE)
 
           - script: |
               set -euxo pipefail
               docker build \
-                -t $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) \
-                -t $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):latest \
+                -t $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG) \
+                -t $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):latest \
                 .
-              docker push $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-              docker push $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):latest
+              docker push $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
+              docker push $(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):latest
             displayName: Build and push DEV image
 
   - stage: trivy_scan_dev
     displayName: Trivy scan [DEV]
     dependsOn: build_and_push_dev
-    condition: eq('${{ parameters.DEPLOY_MODE }}', 'dev')
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
     jobs:
       - job: scanDevImage
         displayName: Scan the DEV image for vulnerabilities
+        steps:
+          - template: templates/steps-trivy-scan.yml
+            parameters:
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
+              acrName: '$(DEV_CONTAINER_NAMESPACE)'
+              image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
+              trivyVersion: '$(TRIVY_VERSION)'
+              continueOnError: true
+
+  - stage: deploy_dev
+    displayName: Deploy [DEV]
+    dependsOn: trivy_scan_dev
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'dev')
+    jobs:
+      - job: helmDeployDev
+        displayName: Helm upgrade on AKS DEV
         pool:
           name: '$(DEV_POOL_NAME)'
         steps:
-          - checkout: self
-            clean: true
+          - template: templates/steps-helm-deploy.yml
+            parameters:
+              environmentName: dev
+              kubernetesServiceConnection: '$(DEV_AKS_SERVICE_CONNECTION)'
+              imageRepository: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME)'
+              imageTag: '$(IMAGE_TAG)'
+              helmChartPath: '$(HELM_CHART_PATH)'
+              helmReleaseName: '$(HELM_RELEASE_NAME)'
+              aksNamespace: '$(AKS_NAMESPACE)'
 
-          - script: |
-              set -euxo pipefail
-              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v$(TRIVY_VERSION)
-            displayName: Install Trivy
+  - stage: trivy_scan_uat
+    displayName: Trivy scan [UAT]
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
+    jobs:
+      - job: scanUatSourceImage
+        displayName: Scan the image to promote for vulnerabilities
+        pool:
+          name: '$(UAT_POOL_NAME)'
+        steps:
+          - template: templates/steps-trivy-scan.yml
+            parameters:
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
+              acrName: '$(DEV_CONTAINER_NAMESPACE)'
+              image: '$(DEV_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}'
+              trivyVersion: '$(TRIVY_VERSION)'
+              continueOnError: true
 
-          - script: |
-              set +e
-              trivy image \
-                --severity HIGH,CRITICAL \
-                --ignore-unfixed \
-                --no-progress \
-                $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-              EXIT_CODE=$?
-              echo "Trivy exit code: $EXIT_CODE"
-              if [ "$EXIT_CODE" -ne 0 ]; then
-                echo "##vso[task.logissue type=warning]Critical vulnerabilities found in DEV image. Review required before promotion."
-              fi
-              exit 0
-            displayName: Run Trivy scan
-            continueOnError: true
+  - stage: promote_to_uat
+    displayName: Promote image [UAT]
+    dependsOn: trivy_scan_uat
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
+    jobs:
+      - job: promoteUat
+        displayName: Promote DEV -> UAT
+        pool:
+          name: '$(UAT_POOL_NAME)'
+        steps:
+          - task: AzureCLI@2
+            displayName: Pull image from DEV ACR
+            inputs:
+              azureSubscription: '$(DEV_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name "${DEV_NS%%.*}"
+                docker pull "${DEV_NS}/${IMG}:${SRC_TAG}"
+            env:
+              DEV_NS: $(DEV_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
 
-#  - stage: promote_to_uat
-#    displayName: Promote image [UAT]
-#    dependsOn: trivy_scan_dev
-#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'uat')
-#    jobs:
-#      - job: promoteUat
-#        displayName: Promote DEV -> UAT
-#        pool:
-#          name: '$(UAT_POOL_NAME)'
-#        steps:
-#          - checkout: self
-#            clean: true
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to DEV ACR
-#            inputs:
-#              azureSubscription: '$(DEV_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(DEV_ACR_NAME)
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to UAT ACR
-#            inputs:
-#              azureSubscription: '$(UAT_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(UAT_ACR_NAME)
-#
-#          - script: |
-#              set -euxo pipefail
-#              docker pull $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker push $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(DEV_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):uat-$(IMAGE_TAG)
-#              docker push $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):uat-$(IMAGE_TAG)
-#            displayName: Promote image from DEV to UAT
-#
-#  - stage: prod_approval
-#    displayName: Approval [PROD]
-#    dependsOn: promote_to_uat
-#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'prod')
-#    jobs:
-#      - job: prodApproval
-#        displayName: Wait for PROD approval
-#        pool:
-#          vmImage: 'ubuntu-22.04'
-#        steps:
-#          - task: ManualValidation@0
-#            displayName: Manual approval for production deployment
-#            timeoutInMinutes: 1440
-#            instructions: |
-#              Review the UAT promotion result and approve the production deployment.
-#              If the image is not ready, reject the deployment.
-#            onTimeout: 'reject'
-#
-#  - stage: promote_to_prod
-#    displayName: Promote image [PROD]
-#    dependsOn: prod_approval
-#    condition: eq('${{ parameters.DEPLOY_MODE }}', 'prod')
-#    jobs:
-#      - job: promoteProd
-#        displayName: Promote UAT -> PROD
-#        pool:
-#          name: '$(PROD_POOL_NAME)'
-#        steps:
-#          - checkout: self
-#            clean: true
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to UAT ACR
-#            inputs:
-#              azureSubscription: '$(UAT_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(UAT_ACR_NAME)
-#
-#          - task: AzureCLI@2
-#            displayName: Azure login to PROD ACR
-#            inputs:
-#              azureSubscription: '$(PROD_CONTAINER_REGISTRY_SERVICE_CONN)'
-#              scriptType: bash
-#              scriptLocation: inlineScript
-#              inlineScript: |
-#                az acr login --name $(PROD_ACR_NAME)
-#
-#          - script: |
-#              set -euxo pipefail
-#              docker pull $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker push $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG)
-#              docker tag $(UAT_ACR_NAME).azurecr.io/$(IMAGE_NAME):$(IMAGE_TAG) $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):prod-$(IMAGE_TAG)
-#              docker push $(PROD_ACR_NAME).azurecr.io/$(IMAGE_NAME):prod-$(IMAGE_TAG)
-#            displayName: Promote image from UAT to PROD
+          - task: AzureCLI@2
+            displayName: Push image to UAT ACR
+            inputs:
+              azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                echo "Pushing ${DEV_NS}/${IMG}:${SRC_TAG} -> ${UAT_NS}/${IMG}"
+
+                az acr login --name "${UAT_NS%%.*}"
+                docker tag "${DEV_NS}/${IMG}:${SRC_TAG}" "${UAT_NS}/${IMG}:${SRC_TAG}"
+                docker tag "${DEV_NS}/${IMG}:${SRC_TAG}" "${UAT_NS}/${IMG}:latest"
+                docker push "${UAT_NS}/${IMG}:${SRC_TAG}"
+                docker push "${UAT_NS}/${IMG}:latest"
+            env:
+              DEV_NS: $(DEV_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+              UAT_NS: $(UAT_CONTAINER_NAMESPACE)
+
+  - stage: deploy_uat
+    displayName: Deploy [UAT]
+    dependsOn: promote_to_uat
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'uat')
+    jobs:
+      - job: helmDeployUat
+        displayName: Helm upgrade on AKS UAT
+        pool:
+          name: '$(UAT_POOL_NAME)'
+        steps:
+          - template: templates/steps-helm-deploy.yml
+            parameters:
+              environmentName: uat
+              kubernetesServiceConnection: '$(UAT_AKS_SERVICE_CONNECTION)'
+              imageRepository: '$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME)'
+              imageTag: '${{ parameters.SOURCE_IMAGE_TAG }}'
+              helmChartPath: '$(HELM_CHART_PATH)'
+              helmReleaseName: '$(HELM_RELEASE_NAME)'
+              aksNamespace: '$(AKS_NAMESPACE)'
+
+  - stage: trivy_scan_prod
+    displayName: Trivy scan [PROD]
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: scanProdSourceImage
+        displayName: Scan the image to promote for vulnerabilities
+        pool:
+          name: '$(PROD_POOL_NAME)'
+        steps:
+          - template: templates/steps-trivy-scan.yml
+            parameters:
+              azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
+              acrName: '$(UAT_CONTAINER_NAMESPACE)'
+              image: '$(UAT_CONTAINER_NAMESPACE)/$(IMAGE_NAME):${{ parameters.SOURCE_IMAGE_TAG }}'
+              trivyVersion: '$(TRIVY_VERSION)'
+              continueOnError: true
+
+  - stage: prod_approval
+    displayName: Approval [PROD]
+    dependsOn: trivy_scan_prod
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: prodApproval
+        displayName: Wait for PROD approval
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: Manual approval for production deployment
+            timeoutInMinutes: 1440
+            inputs:
+              instructions: |
+                Review the UAT promotion result and approve the production deployment.
+                If the image is not ready, reject the deployment.
+              onTimeout: 'reject'
+
+  - stage: promote_to_prod
+    displayName: Promote image [PROD]
+    dependsOn: prod_approval
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: promoteProd
+        displayName: Promote UAT -> PROD
+        pool:
+          name: '$(PROD_POOL_NAME)'
+        steps:
+          - task: AzureCLI@2
+            displayName: Pull image from UAT ACR
+            inputs:
+              azureSubscription: '$(UAT_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name "${UAT_NS%%.*}"
+                docker pull "${UAT_NS}/${IMG}:${SRC_TAG}"
+            env:
+              UAT_NS: $(UAT_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+
+          - task: AzureCLI@2
+            displayName: Push image to PROD ACR
+            inputs:
+              azureSubscription: '$(PROD_AZURE_SUBSCRIPTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                echo "Pushing ${UAT_NS}/${IMG}:${SRC_TAG} -> ${PROD_NS}/${IMG}"
+
+                az acr login --name "${PROD_NS%%.*}"
+                docker tag "${UAT_NS}/${IMG}:${SRC_TAG}" "${PROD_NS}/${IMG}:${SRC_TAG}"
+                docker tag "${UAT_NS}/${IMG}:${SRC_TAG}" "${PROD_NS}/${IMG}:latest"
+                docker push "${PROD_NS}/${IMG}:${SRC_TAG}"
+                docker push "${PROD_NS}/${IMG}:latest"
+            env:
+              UAT_NS: $(UAT_CONTAINER_NAMESPACE)
+              IMG: $(IMAGE_NAME)
+              SRC_TAG: ${{ parameters.SOURCE_IMAGE_TAG }}
+              PROD_NS: $(PROD_CONTAINER_NAMESPACE)
+
+  - stage: deploy_prod
+    displayName: Deploy [PROD]
+    dependsOn: promote_to_prod
+    condition: eq('${{ parameters.DEPLOY_ENV }}', 'prod')
+    jobs:
+      - job: helmDeployProd
+        displayName: Helm upgrade on AKS PROD
+        pool:
+          name: '$(PROD_POOL_NAME)'
+        steps:
+          - template: templates/steps-helm-deploy.yml
+            parameters:
+              environmentName: prod
+              kubernetesServiceConnection: '$(PROD_AKS_SERVICE_CONNECTION)'
+              imageRepository: '$(PROD_CONTAINER_NAMESPACE)/$(IMAGE_NAME)'
+              imageTag: '${{ parameters.SOURCE_IMAGE_TAG }}'
+              helmChartPath: '$(HELM_CHART_PATH)'
+              helmReleaseName: '$(HELM_RELEASE_NAME)'
+              aksNamespace: '$(AKS_NAMESPACE)'

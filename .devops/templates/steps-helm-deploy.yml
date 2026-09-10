@@ -1,0 +1,52 @@
+parameters:
+  - name: environmentName
+    displayName: 'Target environment'
+    type: string
+  - name: kubernetesServiceConnection
+    type: string
+  - name: imageRepository
+    displayName: 'Full image repository'
+    type: string
+  - name: imageTag
+    type: string
+  - name: helmChartPath
+    type: string
+  - name: helmReleaseName
+    type: string
+  - name: aksNamespace
+    type: string
+  - name: helmTimeout
+    type: string
+    default: '10m'
+
+steps:
+  - checkout: self
+    clean: true
+
+  - task: HelmInstaller@1
+    displayName: Install Helm
+
+  - script: |
+      helm repo add superset https://apache.github.io/superset
+      helm repo update
+      helm dependency update ./${{ parameters.helmChartPath }}
+    displayName: Build Helm chart dependencies
+
+  - task: HelmDeploy@1
+    displayName: 'Helm upgrade to AKS ${{ upper(parameters.environmentName) }}'
+    inputs:
+      connectionType: 'Kubernetes Service Connection'
+      kubernetesServiceConnection: '${{ parameters.kubernetesServiceConnection }}'
+      namespace: '${{ parameters.aksNamespace }}'
+      command: 'upgrade'
+      chartType: 'FilePath'
+      chartPath: '${{ parameters.helmChartPath }}'
+      releaseName: '${{ parameters.helmReleaseName }}'
+      install: true
+      valueFile: '${{ parameters.helmChartPath }}/values.yaml'
+      waitForExecution: true
+      arguments: >-
+        -f ${{ parameters.helmChartPath }}/values-${{ parameters.environmentName }}.yaml
+        --set-string superset.image.repository=${{ parameters.imageRepository }}
+        --set-string superset.image.tag=${{ parameters.imageTag }}
+        --timeout ${{ parameters.helmTimeout }}

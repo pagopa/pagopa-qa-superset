@@ -1,0 +1,43 @@
+parameters:
+  - name: azureSubscription
+    type: string
+  - name: acrName
+    type: string
+    default: ''
+  - name: image
+    type: string
+  - name: severities
+    type: string
+    default: 'HIGH,CRITICAL'
+  - name: trivyVersion
+    type: string
+    default: '0.74.0'
+  - name: continueOnError
+    type: boolean
+    default: true
+
+steps:
+  - ${{ if ne(parameters.acrName, '') }}:
+      - task: AzureCLI@2
+        displayName: 'Azure login to ACR (${{ parameters.acrName }})'
+        inputs:
+          azureSubscription: '${{ parameters.azureSubscription }}'
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            az acr login --name ${{ parameters.acrName }}
+
+  - task: Trivy@2
+    displayName: 'Trivy scan ${{ parameters.image }}'
+    continueOnError: ${{ parameters.continueOnError }}
+    inputs:
+      version: '${{ parameters.trivyVersion }}'
+      type: 'image'
+      target: '${{ parameters.image }}'
+      severities: '${{ parameters.severities }}'
+      ignoreUnfixed: true
+      ${{ if parameters.continueOnError }}:
+        ignoreScanErrors: true
+      ${{ else }}:
+        ignoreScanErrors: false
+      options: '--no-progress --image-src remote'
