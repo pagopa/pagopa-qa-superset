@@ -4,6 +4,9 @@ superset:
     tag: latest
     pullPolicy: Always
 
+  envConfig:
+    PAGOPA-QA-HUB-URL: https://pagopa-d-itn-qa-qa-hub-wa.azurewebsites.net/
+
   extraEnv:
     ENVIRONMENT: dev
 

@@ -4,8 +4,13 @@ superset:
     tag: latest
     pullPolicy: Always
 
+  envConfig:
+    PAGOPA-QA-HUB-URL: https://pagopa-u-itn-qa-qa-hub-wa.azurewebsites.net/
+
   extraEnv:
     ENVIRONMENT: uat
+    
+
 
   config:
     ROW_LIMIT: 50000
