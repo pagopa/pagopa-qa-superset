@@ -36,3 +36,5 @@ helm/charts/
 helm/Chart.lock
 
 .env
+
+.DS_Store
