@@ -6,7 +6,7 @@ superset:
 
   extraEnv:
     ENVIRONMENT: uat
-    PAGOPA-QA-HUB-URL: https://pagopa-u-itn-qa-qa-hub-wa.azurewebsites.net/
+    PAGOPA_QA_HUB_URL: https://pagopa-u-itn-qa-qa-hub-wa.azurewebsites.net/
     
 
 

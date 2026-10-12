@@ -6,7 +6,7 @@ superset:
 
   extraEnv:
     ENVIRONMENT: dev
-    PAGOPA-QA-HUB-URL: https://pagopa-d-itn-qa-qa-hub-wa.azurewebsites.net/
+    PAGOPA_QA_HUB_URL: https://pagopa-d-itn-qa-qa-hub-wa.azurewebsites.net/
 
   config:
     ROW_LIMIT: 50000

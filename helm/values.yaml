@@ -75,9 +75,10 @@ superset:
       TALISMAN_ENABLED = False
 
       ENABLE_CORS = True
+      _pagopa_qa_hub_url = env("PAGOPA_QA_HUB_URL", "")
       CORS_OPTIONS = {
           "supports_credentials": True,
-          "origins": [env("PAGOPA-QA-HUB-URL")],
+          "origins": [_pagopa_qa_hub_url] if _pagopa_qa_hub_url else [],
       }
 
       GUEST_ROLE_NAME = "Public"
