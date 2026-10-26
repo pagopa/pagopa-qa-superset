@@ -63,12 +63,18 @@ FROM base AS dependencies
 USER root
 RUN uv pip install \
     authlib \
+    duckdb==1.5.6 \
+    duckdb-engine==0.17.0 \
     psycopg2-binary \
     requests \
     pyjwt \
     impyla
 
+RUN mkdir -p /etc/pki/tls/certs \
+    && ln -sf /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt
+
 USER superset
+RUN /app/.venv/bin/python -c "import duckdb; duckdb.sql('INSTALL azure')"
 
 #
 # 🏗️ Build Stage
