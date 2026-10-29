@@ -92,6 +92,13 @@ superset:
     replicas:
       enabled: true
       replicaCount: 1
+    command:
+      - "/bin/sh"
+      - "-c"
+      - >
+        . {{ .Values.configMountPath }}/superset_bootstrap.sh;
+        python -c "import os, duckdb; duckdb.sql(f\"CREATE OR REPLACE PERSISTENT SECRET dqf_blob (TYPE azure, CONNECTION_STRING 'BlobEndpoint=https://pagopauitnqadqfsa.blob.core.windows.net;SharedAccessSignature={os.environ['DQF_BLOB_SAS'].lstrip('?')}')\")";
+        exec /usr/bin/run-server.sh
     resources:
       requests:
         cpu: 500m
