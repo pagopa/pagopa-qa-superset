@@ -52,6 +52,7 @@ superset:
       - "-c"
       - >
         . {{ .Values.configMountPath }}/superset_bootstrap.sh;
+        python -c "import os, duckdb; duckdb.sql(f\"CREATE OR REPLACE PERSISTENT SECRET dqf_blob (TYPE azure, CONNECTION_STRING 'BlobEndpoint=https://pagopauitnqadqfsa.blob.core.windows.net;SharedAccessSignature={os.environ['DQF_BLOB_SAS'].lstrip('?')}')\")";
         exec celery --app=superset.tasks.celery_app:app worker
         --loglevel=INFO
         --concurrency=2
@@ -72,3 +73,9 @@ superset:
         hosts:
           - qa-superset.itn.internal.uat.platform.pagopa.it
 
+  envSecret:
+    DQF_BLOB_SAS: "dqf-data-sas-token"
+
+  keyvault:
+    name: "pagopa-u-itn-qa-kv"
+    tenantId: "7788edaf-0346-4068-9d79-c868aed15b3d"
